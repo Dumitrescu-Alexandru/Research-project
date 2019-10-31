@@ -46,34 +46,46 @@ class FoodTruck(gym.Env):
         # original states are in 1...8; 1...6
         self.ft_map = -torch.ones(10, 8)
         self.ft_map[1:9, 1:7] = MAPS["original"]
-        self.position = np.array([8, 4])
+        self.state = np.array([8, 4])
         self.all_actions = [LEFT, RIGHT, UP, DOWN]
 
     def step(self, action):
         pos_change = self.get_change(action)
-        x, y = pos_change + self.position
+        x, y = pos_change + self.state
         if self.ft_map[x, y] == WALL:
             print("Tried to hit a wall. Position did not change...")
         else:
-            self.position = self.position + pos_change
-        x, y = self.position
+            self.state = self.state + pos_change
+        x, y = self.state
         if self.ft_map[x, y] != GRID:
             # if after stepping I end up at a restaurant, return True - the episode ended; else, return False
             return True
         return False
 
     def reset(self):
-        self.position = (8, 4)
+        self.state = (8, 4)
 
-    def possible_actions(self):
+    def possible_actions(self, state=None):
         possible_actions = []
         for a in self.all_actions:
-            x, y = self.position + self.get_change(a)
-            if self.ft_map[x, y] != WALL:
-                possible_actions.append(a)
+            if state is not None:
+                # return None if inside an inaccessible state (that is still accessed through e.g. val-iter)
+                if self.ft_map[state[0], state[1]] == WALL:
+                    return None
+                # it has the possibility to compute some arbitrary state's possible actions
+                x, y = state + self.get_change(a)
+                if self.ft_map[x, y] != WALL:
+                    possible_actions.append(a)
+            else:
+                x, y = self.state + self.get_change(a)
+                if self.ft_map[x, y] != WALL:
+                    possible_actions.append(a)
+        return possible_actions
 
     def get_reward(self, state):
-        if rwds[tuple(state)]:
+        if tuple(state)[0] == 8 and tuple(state)[1] == 3:
+            print(tuple(state))
+        if tuple(state) in rwds:
             return time_cost + rwds[tuple(state)]
         else:
             return time_cost
@@ -89,3 +101,12 @@ class FoodTruck(gym.Env):
         else:
             index_change = np.array([0, 1])
         return index_change
+
+    def get_state_space(self):
+        return self.ft_map.shape
+
+    @staticmethod
+    def terminal_state(state):
+        if tuple(state) in rwds:
+            return True
+        return False
