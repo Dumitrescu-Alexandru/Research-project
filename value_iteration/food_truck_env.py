@@ -48,6 +48,8 @@ class FoodTruck(gym.Env):
         self.ft_map[1:9, 1:7] = MAPS["original"]
         self.state = np.array([8, 4])
         self.all_actions = [LEFT, RIGHT, UP, DOWN]
+        self.restaurants = [DONUT_NORTH_FIRST, DONUT_SOUTH_FIRST, NOODLE_FIRST, VEGAN_FIRST]
+        self.waiting_states = [(8, 1), (3, 3), (1, 5), (6, 6)]
 
     def step(self, action):
         pos_change = self.get_change(action)
@@ -69,6 +71,9 @@ class FoodTruck(gym.Env):
         possible_actions = []
         for a in self.all_actions:
             if state is not None:
+                # return -1 and stay put if you are at a restaurant
+                if self.ft_map[state[0], state[1]] in self.restaurants:
+                    return -1
                 # return None if inside an inaccessible state (that is still accessed through e.g. val-iter)
                 if self.ft_map[state[0], state[1]] == WALL:
                     return None
@@ -82,13 +87,16 @@ class FoodTruck(gym.Env):
                     possible_actions.append(a)
         return possible_actions
 
-    def get_reward(self, state):
-        if tuple(state)[0] == 8 and tuple(state)[1] == 3:
-            print(tuple(state))
+    @staticmethod
+    def get_reward(state):
         if tuple(state) in rwds:
             return time_cost + rwds[tuple(state)]
         else:
             return time_cost
+
+    @staticmethod
+    def get_delayed_rwd(state):
+        return delayed_rwds[tuple(state)] + time_cost
 
     @staticmethod
     def get_change(action):
