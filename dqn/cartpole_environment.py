@@ -9,7 +9,7 @@ from collections import namedtuple
 import torch.nn as nn
 import torch.nn.functional as F
 import argparse
-from utils import Transition, ReplayMemory
+from utils import Transition, ReplayMemory, plot_rewards
 
 
 class DQN(nn.Module):
@@ -28,7 +28,8 @@ class DQN(nn.Module):
 
 class Agent(nn.Module):
 
-    def __init__(self, q_models, target_model, hyperbolic, k, gamma, model_params, replay_buffer_size, batch_size):
+    def __init__(self, q_models, target_model, hyperbolic, k, gamma, model_params, replay_buffer_size, batch_size,
+                 inp_dim):
         super(Agent, self).__init__()
         if hyperbolic:
             self.q_models = torch.nn.ModuleList(q_models)
@@ -43,6 +44,7 @@ class Agent(nn.Module):
         self.gamma = gamma
         self.memory = ReplayMemory(replay_buffer_size)
         self.batch_size = batch_size
+        self.inp_dim = inp_dim
 
     def update_network(self, updates=1):
         for _ in range(updates):
@@ -51,12 +53,26 @@ class Agent(nn.Module):
     @staticmethod
     def get_hyperbolic_train_coeffs(k, num_models):
         coeffs = []
-        gamma_intervals = np.linspace(0, 1, 50)
-        for i in range(num_models - 1):
+        gamma_intervals = np.linspace(0, 1, num_models + 1)
+        for i in range(num_models):
             coeffs.append((gamma_intervals[i + 1] - gamma_intervals[i]) * (1 / k) * gamma_intervals[i] ** (1 / (k - 1)))
         return torch.tensor(coeffs)
 
-    def get_state_act_vals(self, state_batch, action_batch):
+    def get_action(self, state_batch, epsilon=0.05):
+        model_outputs = []
+        take_random_action = random.random()
+        if take_random_action > epsilon:
+            return random.randrange(self.n_actions)
+        elif self.hyperbolic:
+            state_batch = torch.tensor(state_batch, dtype=torch.float32).view(-1, self.inp_dim)
+            for ind, mdl in enumerate(self.q_models):
+                model_outputs.append(mdl(state_batch))
+            coeff = self.get_hyperbolic_train_coeffs(self.k, len(self.q_models))
+            model_outputs = torch.cat(model_outputs, 1).reshape(-1, len(self.q_models))
+            model_outputs = (model_outputs * coeff).sum(dim=1)
+            return torch.argmax(model_outputs).item()
+
+    def get_state_act_vals(self, state_batch, action_batch=None):
         if self.hyperbolic:
             model_outputs = []
             for ind, mdl in enumerate(self.q_models):
@@ -64,36 +80,35 @@ class Agent(nn.Module):
             model_outputs = torch.cat(model_outputs, 1).reshape(-1, len(self.q_models))
             coeffs = self.get_hyperbolic_train_coeffs(self.k, len(self.q_models))
             model_outputs = model_outputs * coeffs
-            return model_outputs.sum(dim=1).reshape(-1, len(self.q_models))
+            return model_outputs.sum(dim=1).reshape(-1, 1)
         else:
             model_output = self.q_models(state_batch).gather(1, action_batch)
             return model_output
 
-    def get_max_next_state_vals(self, non_final_mask, non_final_next_state):
+    def get_max_next_state_vals(self, non_final_mask, non_final_next_states):
         if self.hyperbolic:
             target_outptus = []
-            for ind, mdl in enumerate(self.q_models):
-                model_outputs.append(mdl(state_batch).gather(1, action_batch))
-            model_outputs = torch.cat(model_outputs, 1).reshape(-1, len(self.q_models))
+            for ind, mdl in enumerate(self.target_models):
+                next_state_values = torch.zeros(self.batch_size)
+                next_state_values[non_final_mask] = mdl(non_final_next_states).max(1)[0].detach()
+                target_outptus.append(next_state_values)
+            target_outptus = torch.cat(target_outptus, 0).reshape(-1, len(self.target_models))
             coeffs = self.get_hyperbolic_train_coeffs(self.k, len(self.q_models))
-            model_outputs = model_outputs * coeffs
-            return model_outputs.sum(dim=1).reshape(-1, len(self.q_models))
+            target_outptus = target_outptus * coeffs
+            return target_outptus.sum(dim=1).reshape(-1, 1)
 
     def _do_network_update(self):
         if len(self.memory) < self.batch_size:
             return
         transitions = self.memory.sample(self.batch_size)
         batch = Transition(*zip(*transitions))
-        non_final_mask = 1 - torch.tensor(batch.done, dtype=torch.long)
+        non_final_mask = ~torch.tensor(batch.done, dtype=torch.bool)
         non_final_next_states = [s for nonfinal, s in zip(non_final_mask,
                                                           batch.next_state) if nonfinal > 0]
         non_final_next_states = torch.stack(non_final_next_states)
         state_batch = torch.stack(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
-        # print("reward_batch", reward_batch.shape)
-        # print("state_batch", state_batch.shape)
-        # print("action_batch", action_batch)
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
         # columns of actions taken. These are the actions which would've been taken
         # for each batch state according to policy_net
@@ -103,9 +118,7 @@ class Agent(nn.Module):
         # on the "older" target_net; selecting their best reward with max(1)[0].
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
-        next_state_values = torch.zeros(self.batch_size)
-        next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
-
+        next_state_values = self.get_max_next_state_vals(non_final_mask, non_final_next_states)
         # Task 4: TODO: Compute the expected Q values
         expected_state_action_values = self.gamma * next_state_values + reward_batch
 
@@ -116,19 +129,9 @@ class Agent(nn.Module):
         # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
-        for param in self.policy_net.parameters():
+        for param in self.q_models.parameters():
             param.grad.data.clamp_(-1e-1, 1e-1)
         self.optimizer.step()
-
-    def get_action(self, state, epsilon=0.05):
-        sample = random.random()
-        if sample > epsilon:
-            with torch.no_grad():
-                state = torch.from_numpy(state).float()
-                q_values = self.policy_net(state)
-                return torch.argmax(q_values).item()
-        else:
-            return random.randrange(self.n_actions)
 
     def update_target_network(self):
         self.target_net.load_state_dict(self.policy_net.state_dict())
@@ -161,12 +164,14 @@ def initialize_model(model_params, train_hyperbolic, k, gamma, num_models, repla
             target_model.load_state_dict(q_model.state_dict())
             q_val_list.append(q_model)
             target_list.append(target_model)
-        return Agent(q_val_list, target_list, train_hyperbolic, k, gamma, model_params, replay_buffer, batch_size)
+        return Agent(q_val_list, target_list, train_hyperbolic, k, gamma, model_params, replay_buffer, batch_size,
+                     model_params.inp_dim)
     else:
         q_model = DQN(model_params.inp_dim, model_params.act_space, model_params.hidden_size)
         target_model = DQN(model_params.inp_dim, model_params.act_space, model_params.hidden_size)
         target_model.load_state_dict(q_model.state_dict())
-        return Agent(q_model, target_model, train_hyperbolic, k, gamma, model_params, replay_buffer, batch_size)
+        return Agent(q_model, target_model, train_hyperbolic, k, gamma, model_params, replay_buffer, batch_size,
+                     model_params.inp_dim)
 
 
 def train(num_episodes, glie_a, agent):
@@ -194,7 +199,7 @@ def train(num_episodes, glie_a, agent):
             # Move to the next state
             state = next_state
         cumulative_rewards.append(cum_reward)
-        # plot_rewards(cumulative_rewards)
+        plot_rewards(cumulative_rewards)
 
 
 def initialize_model_and_training_params(args, env):
