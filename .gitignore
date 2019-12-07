@@ -1,3 +1,5 @@
 .idea/
 *.txt
 *.pdf
+copy_to_aalto.sh
+copy_image_from_aalto.sh

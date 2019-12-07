@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import argparse
 from utils import Transition, ReplayMemory, plot_rewards
-
+# initialize one and start from that in the forward loop
 
 class DQN(nn.Module):
     def __init__(self, state_space_dim, action_space_dim, hidden=12):
@@ -199,7 +199,9 @@ def train(num_episodes, glie_a, agent):
             # Move to the next state
             state = next_state
         cumulative_rewards.append(cum_reward)
-        plot_rewards(cumulative_rewards)
+        if ep == num_episodes - 1:
+            plot_rewards(cumulative_rewards, save_fig=True)
+        print("Cumulative reward on episode", ep, " ", cum_reward)
 
 
 def initialize_model_and_training_params(args, env):

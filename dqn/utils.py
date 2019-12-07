@@ -49,7 +49,7 @@ class ReplayMemory(object):
         return len(self.memory)
 
 
-def plot_rewards(rewards):
+def plot_rewards(rewards, save_fig=False):
     plt.figure(2)
     plt.clf()
     rewards_t = torch.tensor(rewards, dtype=torch.float)
@@ -63,7 +63,8 @@ def plot_rewards(rewards):
         means = rewards_t.unfold(0, 100, 1).mean(1).view(-1)
         means = torch.cat((torch.zeros(99), means))
         plt.plot(means.numpy())
-
+    if save_fig:
+        plt.savefig("Trainig_name")
     plt.pause(0.001)  # pause a bit so that plots are updated
 
 

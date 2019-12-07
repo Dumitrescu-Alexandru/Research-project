@@ -46,7 +46,7 @@ class FoodTruck(gym.Env):
         # original states are in 1...8; 1...6
         self.ft_map = -torch.ones(10, 8)
         self.ft_map[1:9, 1:7] = MAPS["original"]
-        self.state = np.array([8, 4])
+        self.state = np.array([7, 4])
         self.all_actions = [LEFT, RIGHT, UP, DOWN]
         self.restaurants = [DONUT_NORTH_FIRST, DONUT_SOUTH_FIRST, NOODLE_FIRST, VEGAN_FIRST]
         self.waiting_states = [(8, 1), (3, 3), (1, 5), (6, 6)]
@@ -65,7 +65,7 @@ class FoodTruck(gym.Env):
         return False
 
     def reset(self):
-        self.state = (8, 4)
+        self.state = (7, 4)
 
     def possible_actions(self, state=None):
         possible_actions = []
