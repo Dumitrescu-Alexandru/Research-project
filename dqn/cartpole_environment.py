@@ -10,6 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import argparse
 from utils import Transition, ReplayMemory, plot_rewards
+
+
 # initialize one and start from that in the forward loop
 
 class DQN(nn.Module):
@@ -29,7 +31,7 @@ class DQN(nn.Module):
 class Agent(nn.Module):
 
     def __init__(self, q_models, target_model, hyperbolic, k, gamma, model_params, replay_buffer_size, batch_size,
-                 inp_dim):
+                 inp_dim, lr):
         super(Agent, self).__init__()
         if hyperbolic:
             self.q_models = torch.nn.ModuleList(q_models)
@@ -37,7 +39,7 @@ class Agent(nn.Module):
         else:
             self.q_models = q_models
             self.target_models = target_model
-        self.optimizer = optim.RMSprop(self.q_models.parameters(), lr=1e-3)
+        self.optimizer = optim.RMSprop(self.q_models.parameters(), lr=1e-5)
         self.hyperbolic = hyperbolic
         self.n_actions = model_params.act_space
         self.k = k
@@ -53,10 +55,11 @@ class Agent(nn.Module):
     @staticmethod
     def get_hyperbolic_train_coeffs(k, num_models):
         coeffs = []
-        gamma_intervals = np.linspace(0, 1, num_models + 1)
-        for i in range(num_models):
-            coeffs.append((gamma_intervals[i + 1] - gamma_intervals[i]) * (1 / k) * gamma_intervals[i] ** (1 / (k - 1)))
-        return torch.tensor(coeffs)
+        gamma_intervals = np.linspace(0, 1, num_models + 2)
+        for i in range(1, num_models + 1):
+            coeffs.append(
+                ((gamma_intervals[i + 1] - gamma_intervals[i]) * (1 / k) * gamma_intervals[i] ** ((1 / k) - 1)))
+        return torch.tensor(coeffs) / sum(coeffs)
 
     def get_action(self, state_batch, epsilon=0.05):
         model_outputs = []
@@ -88,14 +91,14 @@ class Agent(nn.Module):
     def get_max_next_state_vals(self, non_final_mask, non_final_next_states):
         if self.hyperbolic:
             target_outptus = []
+            gammas = torch.tensor(np.linspace(0, 1, len(self.q_models) + 1), dtype=torch.float)[1:]
             for ind, mdl in enumerate(self.target_models):
                 next_state_values = torch.zeros(self.batch_size)
                 next_state_values[non_final_mask] = mdl(non_final_next_states).max(1)[0].detach()
                 target_outptus.append(next_state_values)
             target_outptus = torch.cat(target_outptus, 0).reshape(-1, len(self.target_models))
-            coeffs = self.get_hyperbolic_train_coeffs(self.k, len(self.q_models))
-            target_outptus = target_outptus * coeffs
-            return target_outptus.sum(dim=1).reshape(-1, 1)
+            target_outptus = target_outptus * gammas
+            return target_outptus
 
     def _do_network_update(self):
         if len(self.memory) < self.batch_size:
@@ -118,19 +121,18 @@ class Agent(nn.Module):
         # on the "older" target_net; selecting their best reward with max(1)[0].
         # This is merged based on the mask, such that we'll have either the expected
         # state value or 0 in case the state was final.
+        state_action_values = state_action_values.view(-1, 1).repeat(1, len(self.q_models))
         next_state_values = self.get_max_next_state_vals(non_final_mask, non_final_next_states)
-        # Task 4: TODO: Compute the expected Q values
-        expected_state_action_values = self.gamma * next_state_values + reward_batch
-
-        # Compute Huber loss
-        loss = F.smooth_l1_loss(state_action_values.squeeze(),
-                                expected_state_action_values)
+        expected_state_action_values = next_state_values + reward_batch.view(-1, 1).repeat(1, len(self.q_models))
+        loss = (state_action_values - expected_state_action_values) ** 2
+        coefs = self.get_hyperbolic_train_coeffs(self.k, len(self.q_models))
+        loss = torch.sum(loss * coefs)
+        # loss = F.smooth_l1_loss(state_action_values.squeeze(),
+        #                         expected_state_action_values)
 
         # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
-        for param in self.q_models.parameters():
-            param.grad.data.clamp_(-1e-1, 1e-1)
         self.optimizer.step()
 
     def update_target_network(self):
@@ -154,7 +156,7 @@ def initialize_env(env_name):
     return env
 
 
-def initialize_model(model_params, train_hyperbolic, k, gamma, num_models, replay_buffer, batch_size):
+def initialize_model(model_params, train_hyperbolic, k, gamma, num_models, replay_buffer, batch_size, lr):
     target_list = []
     q_val_list = []
     if train_hyperbolic:
@@ -165,7 +167,7 @@ def initialize_model(model_params, train_hyperbolic, k, gamma, num_models, repla
             q_val_list.append(q_model)
             target_list.append(target_model)
         return Agent(q_val_list, target_list, train_hyperbolic, k, gamma, model_params, replay_buffer, batch_size,
-                     model_params.inp_dim)
+                     model_params.inp_dim, lr)
     else:
         q_model = DQN(model_params.inp_dim, model_params.act_space, model_params.hidden_size)
         target_model = DQN(model_params.inp_dim, model_params.act_space, model_params.hidden_size)
@@ -228,6 +230,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     # continuous cart-pole is most likely suited only for actor-critic methods
     parser.add_argument("--env", type=str, default="CartPole-v0", help="Environment to use")
+    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
     parser.add_argument("--train_episodes", type=int, default=5000, help="Number of episodes to train for")
     parser.add_argument("--render_test", action='store_true', help="Render test")
     parser.add_argument("--normalize_rewards", default=False, action='store_true', help="use zero mean/unit variance"
@@ -240,7 +243,7 @@ def parse_arguments():
     parser.add_argument("--num_episodes", type=int, default=5000, help="Number of episodes to use for training"
                                                                        "the model")
     parser.add_argument("--gamma", type=float, default=0.98, help="Learn sigma as a model parameter")
-    parser.add_argument("--k", type=float, default=0.1, help="Learn sigma as a model parameter")
+    parser.add_argument("--k", type=float, default=0.01, help="Learn sigma as a model parameter")
     parser.add_argument("--batch_size", type=int, default=32, help="Learn sigma as a model parameter")
     parser.add_argument("--replay_buffer", type=int, default=50000, help="Learn sigma as a model parameter")
     parser.add_argument("--num_models", type=int, default=50, help="Number of models to be used for ")
@@ -256,5 +259,5 @@ if __name__ == "__main__":
     env = initialize_env(args.env)
     model_params, training_params = initialize_model_and_training_params(args, env)
     agent = initialize_model(model_params, args.train_hyperbolic, args.k, args.gamma, args.num_models,
-                             args.replay_buffer, args.batch_size)
+                             args.replay_buffer, args.batch_size, args.lr)
     train(args.num_episodes, args.glie_a, agent)

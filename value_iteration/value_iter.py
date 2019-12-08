@@ -1,11 +1,12 @@
 from food_truck_env import FoodTruck
 import numpy as np
+import matplotlib.pyplot as plt
 
 np.set_printoptions(suppress=True)
 no_value_fcns = 1000
-epochs = 100
-k = 0.5
-gamma = 1
+epochs = 1000
+k = 0.1
+gamma = 0.05
 flg = 0
 
 
@@ -36,11 +37,19 @@ def hyperbolic_est(val_est, rwd, next_state):
     return sum(hyperbolic_coefs() * val_est[next_state[0], next_state[1], :]) + rwd
 
 
-def update_hyperbolic(val_est, next_state, max_next_rwd, current_state):
-    gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns-1]
-    val_est[current_state[0], current_state[1], :] = gammas * val_est[next_state[0], next_state[1],
-                                                                          :] + max_next_rwd
-    return val_est
+def update_hyperbolic(val_est_, next_state, max_next_rwd, current_state):
+    gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
+    # print(gammas * val_est[next_state[0], next_state[1],
+    #                                                           :] + max_next_rwd)
+    # print((gammas * val_est[next_state[0], next_state[1],
+    #                                                           :] + max_next_rwd).shape)
+    # print(max_next_rwd)
+    # print(gammas)
+    # if next_state[0] == 2 and next_state[1] == 5:
+    #     print(val_est_[next_state[0], next_state[1]])
+    val_est_[current_state[0], current_state[1], :] = gammas * val_est_[next_state[0], next_state[1],
+                                                               :] + max_next_rwd
+    return val_est_
 
 
 def get_final_val_est(val_est):
@@ -48,7 +57,7 @@ def get_final_val_est(val_est):
     return np.sum(val_est.reshape(-1, no_value_fcns - 2) * hyperbolic_coefs(), axis=1).reshape(state_dims)
 
 
-def val_iters(hyperbolic=True):
+def val_iters(hyperbolic=True, alternative_impl=True):
     env = FoodTruck()
     rows, cols = env.get_state_space()
     if hyperbolic:
@@ -58,7 +67,7 @@ def val_iters(hyperbolic=True):
     for ep in range(epochs):
         for i in range(1, rows):
             for j in range(1, cols):
-                val_est = create_multiple_fcns(env.get_state_space(), vals=val_est)
+                # val_est = create_multiple_fcns(env.get_state_space(), vals=val_est)
                 current_state = np.array([i, j])
                 actions = env.possible_actions(current_state)
                 if type(actions) == int:
@@ -74,23 +83,34 @@ def val_iters(hyperbolic=True):
                     continue
                 possible_future_states = [current_state + env.get_change(act) for act in actions]
                 if hyperbolic:
-                    next_rwd_state = [
-                        (hyperbolic_est(val_est, env.get_reward(next_state), next_state), next_state)
-                        for next_state in possible_future_states]
+                    if alternative_impl:
+                        gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
+                        next_state_vals = np.concatenate([val_est[n_s[0], n_s[1]] for n_s in possible_future_states])
+                        discounted_ns = next_state_vals.reshape(-1, no_value_fcns - 2) * gammas
+                        rwds = np.array([env.get_reward(ns) for ns in possible_future_states])
+                        rwds = rwds.reshape(-1, 1)
+                        rwds = np.repeat(rwds, no_value_fcns - 2, axis=1)
+                        max_ns_vals = np.max(discounted_ns + rwds, axis=0)
+                        val_est[current_state[0], current_state[1], :] = max_ns_vals
+                    else:
+                        next_rwd_state = [
+                            (hyperbolic_est(val_est, env.get_reward(next_state), next_state), next_state)
+                            for next_state in possible_future_states]
                 else:
                     next_rwd_state = [(env.get_reward(next_state) + gamma * val_est[
                         next_state[0], next_state[1]], next_state) for next_state in
                                       possible_future_states]
-                max_rwd = next_rwd_state[0][0]
-                max_next_state = next_rwd_state[0][1]
-                for nrs in next_rwd_state:
-                    if nrs[0] > max_rwd:
-                        max_rwd = nrs[0]
-                        max_next_state = nrs[1]
-                if hyperbolic:
+                if not alternative_impl:
+                    max_rwd = next_rwd_state[0][0]
+                    max_next_state = next_rwd_state[0][1]
+                    for nrs in next_rwd_state:
+                        if nrs[0] > max_rwd:
+                            max_rwd = nrs[0]
+                            max_next_state = nrs[1]
+                if hyperbolic and not alternative_impl:
                     val_est = update_hyperbolic(val_est, max_next_state,
                                                 env.get_reward((max_next_state[0], max_next_state[1])), current_state)
-                else:
+                elif not hyperbolic:
                     # if current_state[0] == 5 and current_state[1] == 4:
                     #     print(current_state)
                     #     print("max_next_state", max_next_state)
@@ -101,13 +121,35 @@ def val_iters(hyperbolic=True):
         if hyperbolic:
             # pass
             print("\n", np.array2string(get_final_val_est(val_est[1:-1, 1:-1]), precision=2))
-            # print("\n", np.array2string(get_final_val_est(val_est), precision=2))
+            print("\n", np.array2string(get_final_val_est(val_est), precision=2))
         else:
             print("\n", np.array2string(val_est[1:-1, 1:-1], precision=2))
-        # print("\n", np.array2string(val_est, precision=2))
-        # print(val_est[1:-1, 1:-1].sum())
-        # print(env.get_reward([5,4]))
-        # print(val_est[4,4])
+    data = get_final_val_est(val_est[1:-1, 1:-1])
+    y_positions = np.array(list(range(7, -1, -1)))
+    x_positions = np.array(list(range(0, 6)))
+    for y_, y in enumerate(y_positions):
+        for x_, x in enumerate(x_positions):
+            color = "red"
+            label = round(data[y, x], 2)
+            if data[y, x] == 0:
+                label = "Wall " + str(0)
+                color = "black"
+            elif y == 7 and x == 0 or x == 2 and y == 2:
+                print(round(data[y, x], 2))
+                label = "Dnt " + str(round(data[y, x], 2))
+            elif y == 5 and x == 5:
+                label = "Ndl " + str(round(data[y, x], 2))
+            elif y == 0 and x == 4:
+                label = "Veg " + str(round(label, 2))
+            else:
+                color = "green"
+            plt.text(x, y, label, color=color, ha='center', va='center')
+    plt.imshow(get_final_val_est(val_est[1:-1, 1:-1]), cmap="gray")
+    plt.show()
+    # print("\n", np.array2string(val_est, precision=2))
+    # print(val_est[1:-1, 1:-1].sum())
+    # print(env.get_reward([5,4]))
+    # print(val_est[4,4])
 
 
 val_iters()

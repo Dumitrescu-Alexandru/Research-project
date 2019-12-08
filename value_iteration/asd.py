@@ -43,14 +43,16 @@ def hyperbolic_fcn(value):
     return sum(value * coeffs)
 
 
-# t = np.array(list(range(1000)))
-#
-# gamma = 0.995
-#
-# plt.plot(t, 1 / (1 + k * t))
-# plt.plot(t, gamma ** t)
-# plt.legend(["Hyperbolic", "Exponential"])
-# plt.show()
+t = np.array(list(range(10)))
+k = 0.7
+gamma = 0.995
+
+plt.plot(t, 1 / (1 + k * t))
+plt.plot(t, gamma ** t)
+plt.xlabel("Time delay")
+plt.ylabel("Discount rate")
+plt.legend(["Hyperbolic", "Exponential"])
+plt.show()
 no_value_fcns = 100
 k = [0.1, 0.05, 0.04, 0.03, 0.02, 0.01]
 print([sum(hyperbolic_coefs(k_)) for k_ in k])
