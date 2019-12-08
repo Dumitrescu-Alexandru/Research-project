@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 np.set_printoptions(suppress=True)
 no_value_fcns = 1000
 epochs = 1000
-k = 0.1
+k = 0.4
 gamma = 0.05
 flg = 0
 
@@ -67,7 +67,7 @@ def val_iters(hyperbolic=True, alternative_impl=True):
     for ep in range(epochs):
         for i in range(1, rows):
             for j in range(1, cols):
-                # val_est = create_multiple_fcns(env.get_state_space(), vals=val_est)
+                val_est = create_multiple_fcns(env.get_state_space(), vals=val_est)
                 current_state = np.array([i, j])
                 actions = env.possible_actions(current_state)
                 if type(actions) == int:
@@ -121,7 +121,7 @@ def val_iters(hyperbolic=True, alternative_impl=True):
         if hyperbolic:
             # pass
             print("\n", np.array2string(get_final_val_est(val_est[1:-1, 1:-1]), precision=2))
-            print("\n", np.array2string(get_final_val_est(val_est), precision=2))
+            # print("\n", np.array2string(get_final_val_est(val_est), precision=2))
         else:
             print("\n", np.array2string(val_est[1:-1, 1:-1], precision=2))
     data = get_final_val_est(val_est[1:-1, 1:-1])
@@ -142,7 +142,7 @@ def val_iters(hyperbolic=True, alternative_impl=True):
             elif y == 0 and x == 4:
                 label = "Veg " + str(round(label, 2))
             else:
-                color = "green"
+                color = "white"
             plt.text(x, y, label, color=color, ha='center', va='center')
     plt.imshow(get_final_val_est(val_est[1:-1, 1:-1]), cmap="gray")
     plt.show()
