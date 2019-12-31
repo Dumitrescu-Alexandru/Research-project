@@ -11,23 +11,23 @@ import random
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'done'))
 
-
-def plot_rewards(rewards):
-    plt.figure(2)
-    plt.clf()
-    rewards_t = torch.tensor(rewards, dtype=torch.float)
-    plt.title('Training...')
-    plt.xlabel('Episode')
-    plt.ylabel('Cumulative reward')
-    plt.grid(True)
-    plt.plot(rewards_t.numpy())
-    # Take 100 episode averages and plot them too
-    if len(rewards_t) >= 100:
-        means = rewards_t.unfold(0, 100, 1).mean(1).view(-1)
-        means = torch.cat((torch.zeros(99), means))
-        plt.plot(means.numpy())
-
-    plt.pause(0.001)  # pause a bit so that plots are updated
+#
+# def plot_rewards(rewards):
+#     plt.figure(2)
+#     plt.clf()
+#     rewards_t = torch.tensor(rewards, dtype=torch.float)
+#     plt.title('Training...')
+#     plt.xlabel('Episode')
+#     plt.ylabel('Cumulative reward')
+#     plt.grid(True)
+#     plt.plot(rewards_t.numpy())
+#     # Take 100 episode averages and plot them too
+#     if len(rewards_t) >= 100:
+#         means = rewards_t.unfold(0, 100, 1).mean(1).view(-1)
+#         means = torch.cat((torch.zeros(99), means))
+#         plt.plot(means.numpy())
+#
+#     plt.pause(0.001)  # pause a bit so that plots are updated
 
 class ReplayMemory(object):
     def __init__(self, capacity):
@@ -49,7 +49,7 @@ class ReplayMemory(object):
         return len(self.memory)
 
 
-def plot_rewards(rewards, save_fig=False):
+def plot_rewards(rewards, total_losses, save_fig=""):
     plt.figure(2)
     plt.clf()
     rewards_t = torch.tensor(rewards, dtype=torch.float)
@@ -58,13 +58,17 @@ def plot_rewards(rewards, save_fig=False):
     plt.ylabel('Cumulative reward')
     plt.grid(True)
     plt.plot(rewards_t.numpy())
+
+    plt.plot(np.array(total_losses))
     # Take 100 episode averages and plot them too
     if len(rewards_t) >= 100:
         means = rewards_t.unfold(0, 100, 1).mean(1).view(-1)
         means = torch.cat((torch.zeros(99), means))
         plt.plot(means.numpy())
-    if save_fig:
-        plt.savefig("Trainig_name")
+    if save_fig :
+        plt.savefig(save_fig)
+    else:
+        plt.savefig("Training_plt.png")
     plt.pause(0.001)  # pause a bit so that plots are updated
 
 

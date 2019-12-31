@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 
 np.set_printoptions(suppress=True)
 no_value_fcns = 1000
-epochs = 1000
-k = 0.4
+epochs = 100
+k = 0.5
 gamma = 0.05
 flg = 0
 
