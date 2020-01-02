@@ -3,9 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 np.set_printoptions(suppress=True)
-no_value_fcns = 1000
-epochs = 100
-k = 0.5
+no_value_fcns = 100
+epochs = 10
+k = 0.1
 gamma = 0.05
 flg = 0
 
@@ -20,7 +20,7 @@ def hyperbolic_coefs():
         coeffs.append(
             ((gamma_intervals[i + 1] - gamma_intervals[i]) * (1 / k) * gamma_intervals[i] ** ((1 / k) - 1)))
     coeffs = np.array(coeffs)
-    return coeffs / sum(coeffs)
+    return coeffs
 
 
 def create_multiple_fcns(state_space, vals=0):
@@ -57,9 +57,10 @@ def get_final_val_est(val_est):
     return np.sum(val_est.reshape(-1, no_value_fcns - 2) * hyperbolic_coefs(), axis=1).reshape(state_dims)
 
 
-def val_iters(hyperbolic=True, alternative_impl=True):
+def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=False):
     env = FoodTruck()
     rows, cols = env.get_state_space()
+    restaurant_states = {(8, 1): -10.01, (3, 3): -10.01, (1, 5): 20.01, (6, 6): -0.01}
     if hyperbolic:
         val_est = create_multiple_fcns(env.get_state_space())
     else:
@@ -71,9 +72,16 @@ def val_iters(hyperbolic=True, alternative_impl=True):
                 current_state = np.array([i, j])
                 actions = env.possible_actions(current_state)
                 if type(actions) == int:
+                    current_rwd = env.get_reward(current_state)
                     next_rwd = env.get_delayed_rwd(current_state)
                     if hyperbolic:
-                        val_est[current_state[0], current_state[1], :] = next_rwd
+                        if rwd_on_exit:
+                            current_rwd = np.repeat(current_rwd, no_value_fcns - 2)
+                            next_state_val = np.repeat(restaurant_states[tuple(current_state)], no_value_fcns - 2)
+                            gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
+                            val_est[current_state[0], current_state[1], :] = current_rwd + next_state_val * gammas
+                        else:
+                            val_est[current_state[0], current_state[1], :] = next_rwd
                     else:
                         val_est[current_state[0], current_state[1]] = next_rwd
                     continue
@@ -87,9 +95,14 @@ def val_iters(hyperbolic=True, alternative_impl=True):
                         gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
                         next_state_vals = np.concatenate([val_est[n_s[0], n_s[1]] for n_s in possible_future_states])
                         discounted_ns = next_state_vals.reshape(-1, no_value_fcns - 2) * gammas
-                        rwds = np.array([env.get_reward(ns) for ns in possible_future_states])
-                        rwds = rwds.reshape(-1, 1)
-                        rwds = np.repeat(rwds, no_value_fcns - 2, axis=1)
+                        if rwd_on_exit:
+                            rwds = np.array([env.get_reward(current_state) for _ in possible_future_states])
+                            rwds = rwds.reshape(-1, 1)
+                            rwds = np.repeat(rwds, no_value_fcns - 2, axis=1)
+                        else:
+                            rwds = np.array([env.get_reward(ns) for ns in possible_future_states])
+                            rwds = rwds.reshape(-1, 1)
+                            rwds = np.repeat(rwds, no_value_fcns - 2, axis=1)
                         max_ns_vals = np.max(discounted_ns + rwds, axis=0)
                         val_est[current_state[0], current_state[1], :] = max_ns_vals
                     else:
