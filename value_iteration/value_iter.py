@@ -3,24 +3,23 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 np.set_printoptions(suppress=True)
-no_value_fcns = 100
-epochs = 10
-k = 0.1
-gamma = 0.05
+no_value_fcns = 1000
+epochs = 20
+k = 1
+gamma = np.sort(np.random.uniform(0, 1, no_value_fcns))
 flg = 0
 
 
-# approximate as many value functions for each coefficient
+# sample gammas for the intervals instead of linspacing
+# try it asynch (update on the non-already updated val_functions)
 
 def hyperbolic_coefs():
     coeffs = []
-    gamma_intervals = np.linspace(0, 1, no_value_fcns)
-    gamma_intervals = gamma_intervals
     for i in range(1, no_value_fcns - 1):
         coeffs.append(
-            ((gamma_intervals[i + 1] - gamma_intervals[i]) * (1 / k) * gamma_intervals[i] ** ((1 / k) - 1)))
+            ((gamma[i + 1] - gamma[i]) * (1 / k) * gamma[i] ** ((1 / k) - 1)))
     coeffs = np.array(coeffs)
-    return coeffs
+    return coeffs / sum(coeffs)
 
 
 def create_multiple_fcns(state_space, vals=0):
@@ -39,14 +38,6 @@ def hyperbolic_est(val_est, rwd, next_state):
 
 def update_hyperbolic(val_est_, next_state, max_next_rwd, current_state):
     gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
-    # print(gammas * val_est[next_state[0], next_state[1],
-    #                                                           :] + max_next_rwd)
-    # print((gammas * val_est[next_state[0], next_state[1],
-    #                                                           :] + max_next_rwd).shape)
-    # print(max_next_rwd)
-    # print(gammas)
-    # if next_state[0] == 2 and next_state[1] == 5:
-    #     print(val_est_[next_state[0], next_state[1]])
     val_est_[current_state[0], current_state[1], :] = gammas * val_est_[next_state[0], next_state[1],
                                                                :] + max_next_rwd
     return val_est_
@@ -57,9 +48,10 @@ def get_final_val_est(val_est):
     return np.sum(val_est.reshape(-1, no_value_fcns - 2) * hyperbolic_coefs(), axis=1).reshape(state_dims)
 
 
-def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=False):
+def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
     env = FoodTruck()
     rows, cols = env.get_state_space()
+    restaurant_states = {(8, 1): -11.01, (3, 3): -11.01, (1, 5): 21.01, (6, 6): -0.01}
     restaurant_states = {(8, 1): -10.01, (3, 3): -10.01, (1, 5): 20.01, (6, 6): -0.01}
     if hyperbolic:
         val_est = create_multiple_fcns(env.get_state_space())
@@ -68,7 +60,6 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=False):
     for ep in range(epochs):
         for i in range(1, rows):
             for j in range(1, cols):
-                val_est = create_multiple_fcns(env.get_state_space(), vals=val_est)
                 current_state = np.array([i, j])
                 actions = env.possible_actions(current_state)
                 if type(actions) == int:
@@ -78,7 +69,8 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=False):
                         if rwd_on_exit:
                             current_rwd = np.repeat(current_rwd, no_value_fcns - 2)
                             next_state_val = np.repeat(restaurant_states[tuple(current_state)], no_value_fcns - 2)
-                            gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
+                            # gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
+                            gammas = gamma[1:-1]
                             val_est[current_state[0], current_state[1], :] = current_rwd + next_state_val * gammas
                         else:
                             val_est[current_state[0], current_state[1], :] = next_rwd
@@ -92,7 +84,8 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=False):
                 possible_future_states = [current_state + env.get_change(act) for act in actions]
                 if hyperbolic:
                     if alternative_impl:
-                        gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
+                        # gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
+                        gammas = gamma[1:-1]
                         next_state_vals = np.concatenate([val_est[n_s[0], n_s[1]] for n_s in possible_future_states])
                         discounted_ns = next_state_vals.reshape(-1, no_value_fcns - 2) * gammas
                         if rwd_on_exit:
@@ -110,7 +103,8 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=False):
                             (hyperbolic_est(val_est, env.get_reward(next_state), next_state), next_state)
                             for next_state in possible_future_states]
                 else:
-                    next_rwd_state = [(env.get_reward(next_state) + gamma * val_est[
+                    gammas = gamma[1:-1]
+                    next_rwd_state = [(env.get_reward(next_state) + gammas * val_est[
                         next_state[0], next_state[1]], next_state) for next_state in
                                       possible_future_states]
                 if not alternative_impl:
@@ -133,7 +127,11 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=False):
                     val_est[current_state[0], current_state[1]] = util_est
         if hyperbolic:
             # pass
+            final_val_est = get_final_val_est(val_est[1:-1, 1:-1])
             print("\n", np.array2string(get_final_val_est(val_est[1:-1, 1:-1]), precision=2))
+            print("It will go left" if final_val_est[6, 2] > final_val_est[5, 3] else "it will go up")
+            print(final_val_est[6, 2], final_val_est[5, 3])
+
             # print("\n", np.array2string(get_final_val_est(val_est), precision=2))
         else:
             print("\n", np.array2string(val_est[1:-1, 1:-1], precision=2))
@@ -148,7 +146,6 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=False):
                 label = "Wall " + str(0)
                 color = "black"
             elif y == 7 and x == 0 or x == 2 and y == 2:
-                print(round(data[y, x], 2))
                 label = "Dnt " + str(round(data[y, x], 2))
             elif y == 5 and x == 5:
                 label = "Ndl " + str(round(data[y, x], 2))

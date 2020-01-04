@@ -21,6 +21,15 @@ NOODLE_SECOND = 55
 
 rwds = {(8, 1): 10, (3, 3): 10, (1, 5): -10, (6, 6): 0}
 delayed_rwds = {(8, 1): -10, (3, 3): -10, (1, 5): 20, (6, 6): 0}
+
+# alternative rwds
+# rwds = {(8, 1): 11, (3, 3): 11, (1, 5): -10, (6, 6): 0}
+# delayed_rwds = {(8, 1): -10, (3, 3): -10, (1, 5): 21, (6, 6): 0}
+
+# REWARDS = {"original": ((10, -10), (10, -10), (-10, 20), (0, 0)),
+#            "version_1": ((11, -10), (11, -10), (-10, 20), (0, 0))}
+
+
 time_cost = -0.01
 
 LEFT = 0
@@ -65,7 +74,7 @@ class FoodTruck(gym.Env):
         return False
 
     def reset(self):
-        self.state = (7, 4)
+        self.state = (6, 4)
 
     def possible_actions(self, state=None):
         possible_actions = []

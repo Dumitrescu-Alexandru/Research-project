@@ -19,7 +19,6 @@ def hyperbolic_coefs(k):
     return coeffs
 
 
-
 def direct_computing(k):
     no_value_fcns = 100
     coeffs = []
@@ -27,10 +26,9 @@ def direct_computing(k):
     gamma_intervals = gamma_intervals
     for i in range(1, no_value_fcns - 1):
         coeffs.append(
-            -10.01*((gamma_intervals[i + 1] - gamma_intervals[i]) * (1 / k) * gamma_intervals[i] ** (1 / k - 1)))
+            -10.01 * ((gamma_intervals[i + 1] - gamma_intervals[i]) * (1 / k) * gamma_intervals[i] ** (1 / k - 1)))
     coeffs = np.array(coeffs)
     return coeffs / sum(coeffs)
-
 
 
 def hyperbolic_fcn(value):
@@ -43,18 +41,37 @@ def hyperbolic_fcn(value):
     return sum(value * coeffs)
 
 
-t = np.array(list(range(10)))
-k = 0.7
-gamma = 0.995
+no_value_fcns = 1000
+k = 0.3
 
-plt.plot(t, 1 / (1 + k * t))
-plt.plot(t, gamma ** t)
-plt.xlabel("Time delay")
-plt.ylabel("Discount rate")
-plt.legend(["Hyperbolic", "Exponential"])
+
+def true_hyperbolic(t):
+    return 1 / (1 + k * t)
+
+
+def hyperbolic_coefs(t):
+    coeffs = []
+    gamma_intervals = np.linspace(0, 1, no_value_fcns)
+    gamma_intervals = gamma_intervals
+    for i in range(1, no_value_fcns - 1):
+        coeffs.append(
+            ((gamma_intervals[i + 1] - gamma_intervals[i]) * (1 / k) * gamma_intervals[i] ** ((1 / k) - 1)))
+    coeffs = np.array(coeffs)
+    gamma_intervals = gamma_intervals[1:no_value_fcns - 1]
+    result = coeffs @ np.power(gamma_intervals, t)
+
+    return result
+
+
+T = np.array(range(100))
+true_hyp = []
+coef_hyp = []
+for t_ in T:
+    true_hyp.append(true_hyperbolic(t_))
+    coef_hyp.append(hyperbolic_coefs(t_))
+
+plt.plot(T, true_hyp, label="true")
+
+plt.plot(T, coef_hyp, label="approx")
+plt.legend()
 plt.show()
-no_value_fcns = 100
-k = [0.1, 0.05, 0.04, 0.03, 0.02, 0.01]
-print([sum(hyperbolic_coefs(k_)) for k_ in k])
-print([sum(hyperbolic_coefs(k_) * np.array([-10.01] * (no_value_fcns-2))) for k_ in k])
-print([-10.01 * 1 / (1 + k_) for k_ in k])
