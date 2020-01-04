@@ -6,7 +6,8 @@ np.set_printoptions(suppress=True)
 no_value_fcns = 1000
 epochs = 20
 k = 1
-gamma = np.sort(np.random.uniform(0, 1, no_value_fcns))
+# gamma = np.sort(np.random.uniform(0, 1, no_value_fcns))
+gamma = np.linspace(0, 1, no_value_fcns)
 flg = 0
 
 
@@ -37,7 +38,8 @@ def hyperbolic_est(val_est, rwd, next_state):
 
 
 def update_hyperbolic(val_est_, next_state, max_next_rwd, current_state):
-    gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
+    # gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
+    gammas = gamma[1:-1]
     val_est_[current_state[0], current_state[1], :] = gammas * val_est_[next_state[0], next_state[1],
                                                                :] + max_next_rwd
     return val_est_
@@ -51,7 +53,8 @@ def get_final_val_est(val_est):
 def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
     env = FoodTruck()
     rows, cols = env.get_state_space()
-    restaurant_states = {(8, 1): -11.01, (3, 3): -11.01, (1, 5): 21.01, (6, 6): -0.01}
+    # alternative restaurant states
+    # restaurant_states = {(8, 1): -11.01, (3, 3): -11.01, (1, 5): 21.01, (6, 6): -0.01}
     restaurant_states = {(8, 1): -10.01, (3, 3): -10.01, (1, 5): 20.01, (6, 6): -0.01}
     if hyperbolic:
         val_est = create_multiple_fcns(env.get_state_space())
@@ -60,6 +63,7 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
     for ep in range(epochs):
         for i in range(1, rows):
             for j in range(1, cols):
+                val_est_copy = np.copy(val_est)
                 current_state = np.array([i, j])
                 actions = env.possible_actions(current_state)
                 if type(actions) == int:
@@ -86,7 +90,8 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
                     if alternative_impl:
                         # gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
                         gammas = gamma[1:-1]
-                        next_state_vals = np.concatenate([val_est[n_s[0], n_s[1]] for n_s in possible_future_states])
+                        next_state_vals = np.concatenate(
+                            [val_est_copy[n_s[0], n_s[1]] for n_s in possible_future_states])
                         discounted_ns = next_state_vals.reshape(-1, no_value_fcns - 2) * gammas
                         if rwd_on_exit:
                             rwds = np.array([env.get_reward(current_state) for _ in possible_future_states])
@@ -100,11 +105,11 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
                         val_est[current_state[0], current_state[1], :] = max_ns_vals
                     else:
                         next_rwd_state = [
-                            (hyperbolic_est(val_est, env.get_reward(next_state), next_state), next_state)
+                            (hyperbolic_est(val_est_copy, env.get_reward(next_state), next_state), next_state)
                             for next_state in possible_future_states]
                 else:
                     gammas = gamma[1:-1]
-                    next_rwd_state = [(env.get_reward(next_state) + gammas * val_est[
+                    next_rwd_state = [(env.get_reward(next_state) + gammas * val_est_copy[
                         next_state[0], next_state[1]], next_state) for next_state in
                                       possible_future_states]
                 if not alternative_impl:
@@ -115,7 +120,7 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
                             max_rwd = nrs[0]
                             max_next_state = nrs[1]
                 if hyperbolic and not alternative_impl:
-                    val_est = update_hyperbolic(val_est, max_next_state,
+                    val_est = update_hyperbolic(val_est_copy, max_next_state,
                                                 env.get_reward((max_next_state[0], max_next_state[1])), current_state)
                 elif not hyperbolic:
                     # if current_state[0] == 5 and current_state[1] == 4:
@@ -156,10 +161,6 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
             plt.text(x, y, label, color=color, ha='center', va='center')
     plt.imshow(get_final_val_est(val_est[1:-1, 1:-1]), cmap="gray")
     plt.show()
-    # print("\n", np.array2string(val_est, precision=2))
-    # print(val_est[1:-1, 1:-1].sum())
-    # print(env.get_reward([5,4]))
-    # print(val_est[4,4])
 
 
 val_iters()
