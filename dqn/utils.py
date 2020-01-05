@@ -7,9 +7,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 import random
 
-
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'done'))
+
 
 #
 # def plot_rewards(rewards):
@@ -65,7 +65,7 @@ def plot_rewards(rewards, total_losses, save_fig=""):
         means = rewards_t.unfold(0, 100, 1).mean(1).view(-1)
         means = torch.cat((torch.zeros(99), means))
         plt.plot(means.numpy())
-    if save_fig :
+    if save_fig:
         plt.savefig(save_fig)
     else:
         plt.savefig("Training_plt.png")
@@ -84,4 +84,3 @@ class DQN(nn.Module):
         x = F.relu(x)
         x = self.fc2(x)
         return x
-

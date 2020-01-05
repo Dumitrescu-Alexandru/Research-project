@@ -34,7 +34,7 @@ class DQN(nn.Module):
 class Agent(nn.Module):
 
     def __init__(self, q_models, target_model, hyperbolic, k, gamma, model_params, replay_buffer_size, batch_size,
-                 inp_dim, lr, no_models, act_space, hidden_size):
+                 inp_dim, lr, no_models, act_space, hidden_size, loss_type):
         super(Agent, self).__init__()
         if hyperbolic:
             self.q_models = DQN(state_space_dim=inp_dim, action_space_dim=act_space, hidden=hidden_size,
@@ -57,6 +57,8 @@ class Agent(nn.Module):
         self.target_models.to(self.device)
         self.q_models.to(self.device)
         self.gammas = self.gammas.to(self.device)
+        self.loss_type = loss_type
+        self.criterion = nn.MSELoss()
 
     def update_network(self, updates=1):
         for _ in range(updates):
@@ -126,9 +128,8 @@ class Agent(nn.Module):
 
         state_action_values = self.get_state_act_vals(state_batch, action_batch).view(-1)
         next_state_values = self.get_max_next_state_vals(non_final_mask, non_final_next_states)
-        expected_state_action_values = next_state_values + reward_batch.view(-1, 1).repeat(1,
-                                                                                           self.q_models.no_models).view(
-            -1)
+        expected_state_action_values = next_state_values + \
+                                       reward_batch.view(-1, 1).repeat(1, self.q_models.no_models).view(-1)
         # expected_state_action_values = expected_state_action_values * self.get_hyperbolic_train_coeffs(self.k,
         #                                                                                                self.q_models.no_models).repeat(
         #     self.batch_size)
@@ -138,10 +139,19 @@ class Agent(nn.Module):
         #                                                                              self.q_models.no_models).repeat(
         #     self.batch_size)
         # state_action_values = torch.sum(state_action_values.reshape(-1, self.q_models.no_models), dim=1)
-        loss = (state_action_values - expected_state_action_values) ** 2
-        hyp_coef = self.get_hyperbolic_train_coeffs(self.k, self.q_models.no_models).repeat(self.batch_size)
-        loss = (loss.reshape(-1) * hyp_coef).view(-1)
-        loss = torch.sum(loss)
+        if self.loss_type == "weighted_loss":
+            loss = (state_action_values - expected_state_action_values) ** 2
+            hyp_coef = self.get_hyperbolic_train_coeffs(self.k, self.q_models.no_models).repeat(self.batch_size)
+            loss = (loss.reshape(-1) * hyp_coef).view(-1)
+            loss = torch.sum(loss)
+        elif self.loss_type == "one_output_loss":
+            hyp_coef = self.get_hyperbolic_train_coeffs(self.k, self.q_models.no_models)
+            state_action_values = state_action_values.reshape(self.batch_size, -1) * hyp_coef
+            state_action_values = torch.sum(state_action_values, dim=1)
+            expected_state_action_values = expected_state_action_values.reshape(self.batch_size, -1) * hyp_coef
+            expected_state_action_values = torch.sum(expected_state_action_values, dim=1)
+            loss = self.criterion(state_action_values, expected_state_action_values)
+
         loss_item = loss.item()
         # print(hyp_coef.repeat(self.batch_size).shape)
         # print(loss.shape)
@@ -149,7 +159,7 @@ class Agent(nn.Module):
         #                                                                                                     self.q_models.no_models).repeat(
         #     self.batch_size)
         # # loss = torch.sum(loss)
-        # loss = F.smooth_l1_loss(state_action_values.squeeze(),
+        # loss = F.smooth_l1_loss(stsave_figate_action_values.squeeze(),
         #                         expected_state_action_values)
         # Optimize the model
         self.optimizer.zero_grad()
@@ -181,12 +191,12 @@ def initialize_env(env_name):
     return env
 
 
-def initialize_model(model_params, train_hyperbolic, k, gamma, num_models, replay_buffer, batch_size, lr):
+def initialize_model(model_params, train_hyperbolic, k, gamma, num_models, replay_buffer, batch_size, lr, loss_type):
     target_list = []
     q_val_list = []
     if train_hyperbolic:
         return Agent(q_val_list, target_list, train_hyperbolic, k, gamma, model_params, replay_buffer, batch_size,
-                     model_params.inp_dim, lr, num_models, model_params.act_space, model_params.hidden_size)
+                     model_params.inp_dim, lr, num_models, model_params.act_space, model_params.hidden_size, loss_type)
     else:
         q_model = DQN(model_params.inp_dim, model_params.act_space, model_params.hidden_size)
         target_model = DQN(model_params.inp_dim, model_params.act_space, model_params.hidden_size)
@@ -276,10 +286,11 @@ def parse_arguments():
     parser.add_argument("--batch_size", type=int, default=32, help="Learn sigma as a model parameter")
     parser.add_argument("--replay_buffer", type=int, default=50000, help="Learn sigma as a model parameter")
     parser.add_argument("--num_models", type=int, default=50, help="Number of models to be used for ")
-    parser.add_argument("--train_hyperbolic", default=False, action="store_true",
+    parser.add_argument("--train_hyperbolic", default=True, action="store_true",
                         help="Train using hyperbolic discounting")
     parser.add_argument("--target_update", default=False, help="Train using hyperbolic discounting")
     parser.add_argument("--save_fig", type=str, help="Name of the training plot")
+    parser.add_argument("--loss_type", type=str, default="weighted_loss")
 
     return parser.parse_args()
 
@@ -289,5 +300,5 @@ if __name__ == "__main__":
     env = initialize_env(args.env)
     model_params, training_params = initialize_model_and_training_params(args, env)
     agent = initialize_model(model_params, args.train_hyperbolic, args.k, args.gamma, args.num_models,
-                             args.replay_buffer, args.batch_size, args.lr)
+                             args.replay_buffer, args.batch_size, args.lr, args.loss_type)
     train(args.num_episodes, args.glie_a, agent, args.save_fig)
