@@ -6,8 +6,8 @@ np.set_printoptions(suppress=True)
 no_value_fcns = 1000
 epochs = 20
 k = 1
-# gamma = np.sort(np.random.uniform(0, 1, no_value_fcns))
-gamma = np.linspace(0, 1, no_value_fcns)
+gamma = np.sort(np.random.uniform(0, 1, no_value_fcns))
+# gamma = np.linspace(0, 1, no_value_fcns)
 flg = 0
 
 
@@ -60,10 +60,14 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
         val_est = create_multiple_fcns(env.get_state_space())
     else:
         val_est = np.zeros(env.get_state_space())
+    convergence_copy = np.copy(val_est)
     for ep in range(epochs):
+        update_copy = np.copy(val_est)
+        # print("On ep", ep, np.sum(np.abs(convergence_copy-val_est)))
+        # use this to check prev_step_val_est - prev_to_prev_step_val_est val difference
+        convergence_copy = np.copy(val_est)
         for i in range(1, rows):
             for j in range(1, cols):
-                val_est_copy = np.copy(val_est)
                 current_state = np.array([i, j])
                 actions = env.possible_actions(current_state)
                 if type(actions) == int:
@@ -91,7 +95,7 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
                         # gammas = np.linspace(0, 1, no_value_fcns)[1:no_value_fcns - 1]
                         gammas = gamma[1:-1]
                         next_state_vals = np.concatenate(
-                            [val_est_copy[n_s[0], n_s[1]] for n_s in possible_future_states])
+                            [update_copy[n_s[0], n_s[1]] for n_s in possible_future_states])
                         discounted_ns = next_state_vals.reshape(-1, no_value_fcns - 2) * gammas
                         if rwd_on_exit:
                             rwds = np.array([env.get_reward(current_state) for _ in possible_future_states])
@@ -105,11 +109,11 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
                         val_est[current_state[0], current_state[1], :] = max_ns_vals
                     else:
                         next_rwd_state = [
-                            (hyperbolic_est(val_est_copy, env.get_reward(next_state), next_state), next_state)
+                            (hyperbolic_est(update_copy, env.get_reward(next_state), next_state), next_state)
                             for next_state in possible_future_states]
                 else:
                     gammas = gamma[1:-1]
-                    next_rwd_state = [(env.get_reward(next_state) + gammas * val_est_copy[
+                    next_rwd_state = [(env.get_reward(next_state) + gammas * update_copy[
                         next_state[0], next_state[1]], next_state) for next_state in
                                       possible_future_states]
                 if not alternative_impl:
@@ -120,7 +124,7 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
                             max_rwd = nrs[0]
                             max_next_state = nrs[1]
                 if hyperbolic and not alternative_impl:
-                    val_est = update_hyperbolic(val_est_copy, max_next_state,
+                    val_est = update_hyperbolic(update_copy, max_next_state,
                                                 env.get_reward((max_next_state[0], max_next_state[1])), current_state)
                 elif not hyperbolic:
                     # if current_state[0] == 5 and current_state[1] == 4:
