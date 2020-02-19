@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import argparse
 from utils import Transition, ReplayMemory, plot_rewards
 
-TARGET_UPDATE = 20
+TARGET_UPDATE = 50
 
 
 # initialize one and start from that in the forward loop
@@ -34,7 +34,7 @@ class DQN(nn.Module):
 class Agent(nn.Module):
 
     def __init__(self, q_models, target_model, hyperbolic, k, gamma, model_params, replay_buffer_size, batch_size,
-                 inp_dim, lr, no_models, act_space, hidden_size, loss_type):
+                 inp_dim, lr, no_models, act_space, hidden_size, loss_type, target_update=False):
         super(Agent, self).__init__()
         if hyperbolic:
             self.q_models = DQN(state_space_dim=inp_dim, action_space_dim=act_space, hidden=hidden_size,
@@ -49,7 +49,7 @@ class Agent(nn.Module):
         self.hyperbolic = hyperbolic
         self.n_actions = model_params.act_space
         self.k = k
-        self.gammas = torch.tensor(np.linspace(0, 0.995, self.q_models.no_models + 1), dtype=torch.float)[1:]
+        self.gammas = torch.tensor(np.linspace(0, 1, self.q_models.no_models + 1), dtype=torch.float)[1:]
         self.memory = ReplayMemory(replay_buffer_size)
         self.batch_size = batch_size
         self.inp_dim = inp_dim
@@ -59,6 +59,7 @@ class Agent(nn.Module):
         self.gammas = self.gammas.to(self.device)
         self.loss_type = loss_type
         self.criterion = nn.MSELoss()
+        self.use_target_network = target_update
 
     def update_network(self, updates=1):
         for _ in range(updates):
@@ -73,20 +74,26 @@ class Agent(nn.Module):
                 ((gamma_intervals[i + 1] - gamma_intervals[i]) * (1 / k) * gamma_intervals[i] ** ((1 / k) - 1)))
         return torch.tensor(coeffs).to(self.device) / sum(coeffs)
 
-    def get_action(self, state_batch, epsilon=0.05):
+    def get_action(self, state_batch, epsilon=0.05, get_among_last=False):
+        # epsilon gets smaller as time goes by. 
+        # (glie_a/(glie_a + eps)) with eps in range(0, no_episodes)
         take_random_action = random.random()
         if take_random_action > epsilon:
             return random.randrange(self.n_actions)
+        elif get_among_last:
+            state_batch = torch.tensor(state_batch, dtype=torch.float32, device=self.device).view(-1,
+                                                                                                  self.inp_dim)
+            model_outputs = self.q_models(state_batch).reshape(2, self.q_models.no_models)
+            return torch.argmax(model_outputs[:, -10].view(-1)).item()
+            model_outputs = model_outputs * self.get_hyperbolic_train_coeffs(self.k, self.q_models.no_models)
+            actions = torch.argmax(torch.sum(model_outputs, dim=1))
+            return actions.item()
         elif self.hyperbolic:
-            if take_random_action > epsilon:
-                return np.random.randint(0, self.n_actions, self.q_models.no_models)
-            else:
-                state_batch = torch.tensor(state_batch, dtype=torch.float32, device=self.device).view(-1,
-                                                                                                      self.inp_dim)
-                model_outputs = self.q_models(state_batch).reshape(2, self.q_models.no_models)
-                model_outputs = model_outputs * self.get_hyperbolic_train_coeffs(self.k, self.q_models.no_models)
-                actions = torch.argmax(torch.sum(model_outputs, dim=1))
-                return actions.item()
+            state_batch = torch.tensor(state_batch, dtype=torch.float32, device=self.device).view(-1,self.inp_dim)
+            model_outputs = self.q_models(state_batch).reshape(2, self.q_models.no_models)
+            model_outputs = model_outputs * self.get_hyperbolic_train_coeffs(self.k, self.q_models.no_models)
+            actions = torch.argmax(torch.sum(model_outputs, dim=1))
+            return actions.item()
 
     def get_state_act_vals(self, state_batch, action_batch=None):
         if self.hyperbolic:
@@ -105,11 +112,21 @@ class Agent(nn.Module):
         if self.hyperbolic:
             with torch.no_grad():
                 next_state_values = torch.zeros(self.batch_size).to(self.device)
-                non_final_mask = non_final_mask.reshape(-1, 1).repeat(1, self.q_models.no_models).reshape(-1)
+                # doing it like this, the model_no will come first and then the batch_no (b1m1, b1m2, b1m3..., b2m1,
+                # ...b10m1, b10m2...
+                non_final_mask = non_final_mask.reshape(-1, 1).repeat(1, self.q_models.no_models).view(-1)
                 next_state_values = next_state_values.view(-1, 1).repeat(1, self.q_models.no_models).view(-1)
-                next_state_values[non_final_mask] = \
-                    self.q_models(non_final_next_states.to(self.device)).reshape(-1, self.n_actions).max(1)[
-                        0].detach()
+                if self.use_target_network:
+                    # [b1m1o1, b1m1o2], -> max -> [b1m1]
+                    # [b1m2o1, b1m2o2],           [b1m2]
+                    # [b1m3o1, b1m3o3],           [b1m3]
+                    # ...                         ...
+                    #
+                    next_state_values[non_final_mask] = \
+                        self.target_models(non_final_next_states.to(self.device)).reshape(-1, self.n_actions).max(1)[0]
+                else:
+                    next_state_values[non_final_mask] = \
+                        self.q_models(non_final_next_states.to(self.device)).reshape(-1, self.n_actions).max(1)[0]
                 target_outptus = next_state_values
                 return target_outptus * self.gammas.repeat(self.batch_size)
 
@@ -125,24 +142,19 @@ class Agent(nn.Module):
         state_batch = torch.stack(batch.state).to(self.device)
         action_batch = torch.cat(batch.action).to(self.device)
         reward_batch = torch.cat(batch.reward).to(self.device)
-
         state_action_values = self.get_state_act_vals(state_batch, action_batch).view(-1)
         next_state_values = self.get_max_next_state_vals(non_final_mask, non_final_next_states)
+        # this should be perfect
         expected_state_action_values = next_state_values + \
                                        reward_batch.view(-1, 1).repeat(1, self.q_models.no_models).view(-1)
-        # expected_state_action_values = expected_state_action_values * self.get_hyperbolic_train_coeffs(self.k,
-        #                                                                                                self.q_models.no_models).repeat(
-        #     self.batch_size)
-        # expected_state_action_values = torch.sum(expected_state_action_values.reshape(-1, self.q_models.no_models),
-        #                                          dim=1)
-        # state_action_values = state_action_values * self.get_hyperbolic_train_coeffs(self.k,
-        #                                                                              self.q_models.no_models).repeat(
-        #     self.batch_size)
-        # state_action_values = torch.sum(state_action_values.reshape(-1, self.q_models.no_models), dim=1)
+        # print(reward_batch.view(-1, 1).repeat(1, self.q_models.no_models).view(-1).shape)
         if self.loss_type == "weighted_loss":
             loss = (state_action_values - expected_state_action_values) ** 2
             hyp_coef = self.get_hyperbolic_train_coeffs(self.k, self.q_models.no_models).repeat(self.batch_size)
-            loss = (loss.reshape(-1) * hyp_coef).view(-1)
+            loss = (loss.reshape(-1).view(-1) * hyp_coef).view(-1)
+            loss = torch.mean(loss)
+        elif self.loss_type == "separate_summarized_loss":
+            loss = (state_action_values - expected_state_action_values) ** 2
             loss = torch.sum(loss)
         elif self.loss_type == "one_output_loss":
             hyp_coef = self.get_hyperbolic_train_coeffs(self.k, self.q_models.no_models)
@@ -164,7 +176,6 @@ class Agent(nn.Module):
         # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
-
         for param in self.q_models.parameters():
             param.grad.data.clamp_(-1e-1, 1e-1)
         self.optimizer.step()
@@ -191,12 +202,14 @@ def initialize_env(env_name):
     return env
 
 
-def initialize_model(model_params, train_hyperbolic, k, gamma, num_models, replay_buffer, batch_size, lr, loss_type):
+def initialize_model(model_params, train_hyperbolic, k, gamma, num_models, replay_buffer, batch_size, lr, loss_type,
+                     target_update=False):
     target_list = []
     q_val_list = []
     if train_hyperbolic:
         return Agent(q_val_list, target_list, train_hyperbolic, k, gamma, model_params, replay_buffer, batch_size,
-                     model_params.inp_dim, lr, num_models, model_params.act_space, model_params.hidden_size, loss_type)
+                     model_params.inp_dim, lr, num_models, model_params.act_space, model_params.hidden_size, loss_type,
+                     target_update)
     else:
         q_model = DQN(model_params.inp_dim, model_params.act_space, model_params.hidden_size)
         target_model = DQN(model_params.inp_dim, model_params.act_space, model_params.hidden_size)
@@ -205,45 +218,56 @@ def initialize_model(model_params, train_hyperbolic, k, gamma, num_models, repla
                      model_params.inp_dim)
 
 
+def test(agent, num_episodes=100, ep_no=-1):
+    cumulative_rewards = []
+    for ep in range(num_episodes):
+        # Initialize the environment and state
+        state = env.reset()
+        done = False
+        cum_reward = 0
+        i = 0
+        while not done:
+            i += 1
+            # Select and perform an action
+            action = agent.get_action(state, 1, False)
+            next_state, reward, done, _ = env.step(action)
+            cum_reward += reward
+            state = next_state
+        cumulative_rewards.append(cum_reward)
+    print("Cumulative reward on episode", ep_no, " ", sum(cumulative_rewards) / num_episodes)
+
+
 def train(num_episodes, glie_a, agent, save_fig):
     cumulative_rewards = []
+    loss = None
     all_losses = []
-
     for ep in range(num_episodes):
         # Initialize the environment and state
         state = env.reset()
         done = False
         eps = glie_a / (glie_a + ep)
+        eps = max(eps, 0.1)
         cum_reward = 0
         total_loss = 0
         i = 0
         while not done:
             i += 1
-            # Select and perform an action
             action = agent.get_action(state, eps)
             next_state, reward, done, _ = env.step(action)
             cum_reward += reward
-
-            # Task 1: TODO: Update the Q-values
-            # agent.single_update(state, action, next_state, reward, done)
             agent.store_transition(state, action, next_state, reward, done)
-            # agent.update_estimator()
-            # Task 2: TODO: Store transition and batch-update Q-values
-            # Task 4: Update the DQN
             loss = agent.update_network()
             if loss is not None:
                 total_loss += loss
-            # Move to the next state
             state = next_state
         all_losses.append(total_loss / i)
         cumulative_rewards.append(cum_reward)
-        plot_rewards(cumulative_rewards, total_losses=all_losses)
         if ep == num_episodes - 1:
             plot_rewards(cumulative_rewards, total_losses=all_losses, save_fig=save_fig)
-        print("Cumulative reward on episode", ep, " ", cum_reward)
         if ep % TARGET_UPDATE == 0:
             agent.update_target_network()
-
+        if ep % 200 == 0:
+            test(agent, num_episodes=100, ep_no=ep)
 
 def initialize_model_and_training_params(args, env):
     glie_a = args.glie_a
@@ -269,15 +293,15 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     # continuous cart-pole is most likely suited only for actor-critic methods
     parser.add_argument("--env", type=str, default="CartPole-v0", help="Environment to use")
-    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
-    parser.add_argument("--train_episodes", type=int, default=5000, help="Number of episodes to train for")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--train_episodes", type=int, default=50000, help="Number of episodes to train for")
     parser.add_argument("--render_test", action='store_true', help="Render test")
     parser.add_argument("--normalize_rewards", default=False, action='store_true', help="use zero mean/unit variance"
                                                                                         "normalization")
     parser.add_argument("--baseline", type=int, default=0, help="Baseline to 0 (default=0 - no baseline)")
     parser.add_argument("--sigma_type", type=str, default="constant", help="Learn sigma as a model parameter")
     parser.add_argument("--hidden_dim", type=int, default=12, help="Model hidden size required")
-    parser.add_argument("--glie_a", type=int, default=200, help="Parameter for lowering the exploration of the "
+    parser.add_argument("--glie_a", type=int, default=10000, help="Parameter for lowering the exploration of the "
                                                                 "model during the training")
     parser.add_argument("--num_episodes", type=int, default=5000, help="Number of episodes to use for training"
                                                                        "the model")
@@ -288,9 +312,10 @@ def parse_arguments():
     parser.add_argument("--num_models", type=int, default=50, help="Number of models to be used for ")
     parser.add_argument("--train_hyperbolic", default=True, action="store_true",
                         help="Train using hyperbolic discounting")
-    parser.add_argument("--target_update", default=False, help="Train using hyperbolic discounting")
+    parser.add_argument("--target_update", default=False, action="store_true",
+                        help="Train using hyperbolic discounting")
     parser.add_argument("--save_fig", type=str, help="Name of the training plot")
-    parser.add_argument("--loss_type", type=str, default="weighted_loss")
+    parser.add_argument("--loss_type", type=str, default="separate_summarized_loss")
 
     return parser.parse_args()
 
@@ -300,5 +325,5 @@ if __name__ == "__main__":
     env = initialize_env(args.env)
     model_params, training_params = initialize_model_and_training_params(args, env)
     agent = initialize_model(model_params, args.train_hyperbolic, args.k, args.gamma, args.num_models,
-                             args.replay_buffer, args.batch_size, args.lr, args.loss_type)
+                             args.replay_buffer, args.batch_size, args.lr, args.loss_type, args.target_update)
     train(args.num_episodes, args.glie_a, agent, args.save_fig)

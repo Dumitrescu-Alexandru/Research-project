@@ -187,6 +187,7 @@ def train(num_episodes, glie_a, agent):
         state = env.reset()
         done = False
         eps = glie_a / (glie_a + ep)
+        eps = max(0.1, eps)
         cum_reward = 0
         while not done:
             # Select and perform an action
@@ -242,7 +243,7 @@ def parse_arguments():
     parser.add_argument("--baseline", type=int, default=0, help="Baseline to 0 (default=0 - no baseline)")
     parser.add_argument("--sigma_type", type=str, default="constant", help="Learn sigma as a model parameter")
     parser.add_argument("--hidden_dim", type=int, default=12, help="Model hidden size required")
-    parser.add_argument("--glie_a", type=int, default=200, help="Parameter for lowering the exploration of the "
+    parser.add_argument("--glie_a", type=int, default=2000, help="Parameter for lowering the exploration of the "
                                                                 "model during the training")
     parser.add_argument("--num_episodes", type=int, default=5000, help="Number of episodes to use for training"
                                                                        "the model")
