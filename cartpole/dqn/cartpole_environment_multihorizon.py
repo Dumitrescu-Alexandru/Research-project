@@ -259,6 +259,8 @@ def train(num_episodes, glie_a, agent, save_fig):
     all_losses = []
     cumulative_rewards_test = []
     for ep in range(num_episodes):
+        if ep % 100 == 0:
+            print("{} episodes elapsed out of {}".format(ep, num_episodes))
         # Initialize the environment and state
         state = env.reset()
         done = False
