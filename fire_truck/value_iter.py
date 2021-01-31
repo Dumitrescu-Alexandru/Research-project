@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 
 np.set_printoptions(suppress=True)
 no_value_fcns = 1000
-epochs = 20
-k = 1
+epochs = 2000
+k = 0.9
 gamma = np.sort(np.random.uniform(0, 1, no_value_fcns))
 # gamma = np.linspace(0, 1, no_value_fcns)
 flg = 0
@@ -137,9 +137,10 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
         if hyperbolic:
             # pass
             final_val_est = get_final_val_est(val_est[1:-1, 1:-1])
-            print("\n", np.array2string(get_final_val_est(val_est[1:-1, 1:-1]), precision=2))
+            # print("\n", np.array2string(get_final_val_est(val_est[1:-1, 1:-1]), precision=2))
+            print(final_val_est[6, 2] , final_val_est[5, 3])
             print("It will go left" if final_val_est[6, 2] > final_val_est[5, 3] else "it will go up")
-            print(final_val_est[6, 2], final_val_est[5, 3])
+            # print(final_val_est[6, 2], final_val_est[5, 3])
 
             # print("\n", np.array2string(get_final_val_est(val_est), precision=2))
         else:
@@ -150,16 +151,16 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
     for y_, y in enumerate(y_positions):
         for x_, x in enumerate(x_positions):
             color = "red"
-            label = round(data[y, x], 2)
+            label = round(data[y, x], 3)
             if data[y, x] == 0:
                 label = "Wall " + str(0)
                 color = "black"
             elif y == 7 and x == 0 or x == 2 and y == 2:
-                label = "Dnt " + str(round(data[y, x], 2))
+                label = "Dnt " + str(round(data[y, x], 3))
             elif y == 5 and x == 5:
-                label = "Ndl " + str(round(data[y, x], 2))
+                label = "Ndl " + str(round(data[y, x],3))
             elif y == 0 and x == 4:
-                label = "Veg " + str(round(label, 2))
+                label = "Veg " + str(round(label, 3))
             else:
                 color = "white"
             plt.text(x, y, label, color=color, ha='center', va='center')
