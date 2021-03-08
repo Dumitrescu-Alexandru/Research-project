@@ -1,10 +1,11 @@
+from matplotlib import colors
 from food_truck_env import FoodTruck
 import numpy as np
 import matplotlib.pyplot as plt
 
 np.set_printoptions(suppress=True)
 no_value_fcns = 1000
-epochs = 2000
+epochs = 10
 k = 0.9
 gamma = np.sort(np.random.uniform(0, 1, no_value_fcns))
 # gamma = np.linspace(0, 1, no_value_fcns)
@@ -138,7 +139,7 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
             # pass
             final_val_est = get_final_val_est(val_est[1:-1, 1:-1])
             # print("\n", np.array2string(get_final_val_est(val_est[1:-1, 1:-1]), precision=2))
-            print(final_val_est[6, 2] , final_val_est[5, 3])
+            print(final_val_est[6, 2], final_val_est[5, 3])
             print("It will go left" if final_val_est[6, 2] > final_val_est[5, 3] else "it will go up")
             # print(final_val_est[6, 2], final_val_est[5, 3])
 
@@ -146,25 +147,53 @@ def val_iters(hyperbolic=True, alternative_impl=True, rwd_on_exit=True):
         else:
             print("\n", np.array2string(val_est[1:-1, 1:-1], precision=2))
     data = get_final_val_est(val_est[1:-1, 1:-1])
+    plt.rc('font', size=8)  # controls default text sizes
+    plt.rc('axes', titlesize=15)  # fontsize of the axes title
+    plt.rc('axes', labelsize=13)  # fontsize of the x and y labels
+    plt.rc('xtick', labelsize=8)  # fontsize of the tick labels
+    plt.rc('ytick', labelsize=8)  # fontsize of the tick labels
+    plt.rc('legend', fontsize=13)  # legend fontsize
+    plt.rc('figure', titlesize=13)  # fontsize of the figure title
+    fig = plt.figure(figsize=(8, 6))
+    ax = fig.add_axes([0.1, 0.1, 0.6, 0.75])
     y_positions = np.array(list(range(7, -1, -1)))
     x_positions = np.array(list(range(0, 6)))
     for y_, y in enumerate(y_positions):
         for x_, x in enumerate(x_positions):
-            color = "red"
+            color = "black"
             label = round(data[y, x], 3)
             if data[y, x] == 0:
-                label = "Wall " + str(0)
-                color = "black"
-            elif y == 7 and x == 0 or x == 2 and y == 2:
-                label = "Dnt " + str(round(data[y, x], 3))
-            elif y == 5 and x == 5:
-                label = "Ndl " + str(round(data[y, x],3))
-            elif y == 0 and x == 4:
-                label = "Veg " + str(round(label, 3))
-            else:
+                val_est[y+1,x+1] = -2
+                label = "Wall "
                 color = "white"
-            plt.text(x, y, label, color=color, ha='center', va='center')
+            elif y == 7 and x == 0 or x == 2 and y == 2:
+                label = "Dnt "  + str(round(data[y, x], 2))
+            elif y == 5 and x == 5:
+                label = "Ndl "  + str(round(data[y, x],2))
+            elif y == 0 and x == 4:
+                label = "Veg " + str(round(label, 2))
+            else:
+                label = str(label)
+                color = "black"
+            ax.text(x, y, label, color=color, ha='center', va='center')
     plt.imshow(get_final_val_est(val_est[1:-1, 1:-1]), cmap="gray")
+    # print(env.ft_map)
+    # ax.scatter(7, 0, marker="s",  c="black", label="wall")
+    # ax.scatter(7, 0, marker="s",  c="firebrick", label="veggie restaurant")
+    # ax.scatter(7, 0, marker="s",  c="rosybrown", label="noodle restaurant")
+    # ax.scatter(7, 0, marker="s",  c="sienna", label="donut restaurant")
+    # ax.scatter(7, 0, marker="s",  c="lightgrey", label="accessible path")
+    # image_to_show = env.ft_map[1:-1, 1:-1]
+    # image_to_show[7, 0] = 2
+    # image_to_show[0, 4] = 6
+    # image_to_show[5, 5] = 4
+    # print(image_to_show)
+    # cmap = colors.ListedColormap(['black', 'lightgrey', 'sienna', 'rosybrown', 'firebrick'])
+    # ax.imshow(env.ft_map[1:-1, 1:-1], label="Value of ", cmap=cmap)
+    # ax.legend(loc='upper left', framealpha=0.4)
+    # ax.legend(bbox_to_anchor=(1.05, 0.65), loc='upper left')
+    plt.title("Hyperbolic agent in Food Truck")
+
     plt.show()
 
 
